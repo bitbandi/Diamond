@@ -703,8 +703,6 @@ bool CTxDB::LoadBlockIndex()
     map<pair<unsigned int, unsigned int>, CBlockIndex*> mapBlockPos;
     for (CBlockIndex* pindex = pindexBest; pindex && pindex->pprev; pindex = pindex->pprev)
     {
-        // calculate totalCoin for other routines that get called
-        totalCoin = pindex->nMoneySupply / COIN;
         if (fRequestShutdown || pindex->nHeight < nBestHeight-nCheckDepth)
             break;
         CBlock block;
@@ -712,7 +710,7 @@ bool CTxDB::LoadBlockIndex()
             return error("LoadBlockIndex() : block.ReadFromDisk failed");
         // check level 1: verify block validity
         // DK properly pass totalCoin
-        if (nCheckLevel>0 && !block.CheckBlock(true, true, totalCoin))
+        if (nCheckLevel>0 && !block.CheckBlock(true, true))
         {
             printf("LoadBlockIndex() : *** found bad block at %d, hash=%s\n", pindex->nHeight, pindex->GetBlockHash().ToString().c_str());
             pindexFork = pindex->pprev;

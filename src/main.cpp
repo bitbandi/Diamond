@@ -47,7 +47,6 @@ unsigned int nStakeMaxAge = 60 * 60 * 24 * 30;	// stake age of full weight: 30d
 int64 nStakeTargetSpacing = 60;			// 1-minute block spacing
 int64 nWorkTargetSpacing = 60;			// 1-minute block spacing
 
-int64 totalCoin = -1;
 int64 nChainStartTime = 1373654826;
 int nCoinbaseMaturity = 30;
 CBlockIndex* pindexGenesisBlock = NULL;
@@ -943,7 +942,7 @@ int generateMTRandom(unsigned int s, int range)
 
 
 // miner's coin base reward based on nBits
-int64 GetProofOfWorkReward(int nHeight, int64 nFees, uint256 prevHash)
+int64 GetProofOfWorkReward(int nHeight, int64 nFees, uint256 prevHash, int64 totalCoin)
 {
     int64 nSubsidy = COIN;
 
@@ -983,7 +982,7 @@ int64 GetProofOfWorkReward(int nHeight, int64 nFees, uint256 prevHash)
 
 // miner's coin stake reward based on nBits and coin age spent (coin-days)
 // simple algorithm, not depend on the diff
-int64 GetProofOfStakeReward(int64 nCoinAge, unsigned int nBits, unsigned int nTime, int nHeight)
+int64 GetProofOfStakeReward(int64 nCoinAge, unsigned int nBits, unsigned int nTime, int nHeight, int64 totalCoin)
 {
     int64 nRewardCoinYear;
     int64 nSubsidy = 0;
@@ -1224,9 +1223,10 @@ unsigned int GetNextTargetRequired_v2(const CBlockIndex* pindexLast, bool fProof
 
 unsigned int GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfStake)
 {
+    int64 totalCoin = pindexLast->nMoneySupply / COIN;
     if (totalCoin < 1000000)
         return GetNextTargetRequired_v1(pindexLast, fProofOfStake);
-        else return GetNextTargetRequired_v2(pindexLast, fProofOfStake);
+    else return GetNextTargetRequired_v2(pindexLast, fProofOfStake);
 }
 
 
@@ -1455,6 +1455,7 @@ bool CTransaction::ConnectInputs(CTxDB& txdb, MapPrevTx inputs,
     // fBlock is true when this is called from AcceptBlock when a new best-block is added to the blockchain
     // fMiner is true when called from the internal bitcoin miner
     // ... both are false when called from CTransaction::AcceptToMemoryPool
+    int64 totalCoin = pindexBlock->pprev ? pindexBlock->pprev->nMoneySupply / COIN : 0;
     if (!IsCoinBase())
     {
         int64 nValueIn = 0;
@@ -1535,7 +1536,7 @@ bool CTransaction::ConnectInputs(CTxDB& txdb, MapPrevTx inputs,
             if (!GetCoinAge(txdb, nCoinAge))
                 return error("ConnectInputs() : %s unable to get coin age for coinstake", GetHash().ToString().substr(0,10).c_str());
             int64 nStakeReward = GetValueOut() - nValueIn;
-            if (nStakeReward > GetProofOfStakeReward(nCoinAge, pindexBlock->nBits, nTime, pindexBlock->nHeight) - GetMinFee() + MIN_TX_FEE)
+            if (nStakeReward > GetProofOfStakeReward(nCoinAge, pindexBlock->nBits, nTime, pindexBlock->nHeight, totalCoin) - GetMinFee() + MIN_TX_FEE)
                 return DoS(100, error("ConnectInputs() : %s stake reward exceeded", GetHash().ToString().substr(0,10).c_str()));
         }
         else
@@ -1635,7 +1636,7 @@ bool CBlock::DisconnectBlock(CTxDB& txdb, CBlockIndex* pindex)
 bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
 {
     // Check it again in case a previous version let a bad block in
-    if (!CheckBlock(!fJustCheck, !fJustCheck, GetTotalCoin()))
+    if (!CheckBlock(!fJustCheck, !fJustCheck))
         return false;
 
     // Do not allow blocks that contain transactions which 'overwrite' older transactions,
@@ -1751,14 +1752,14 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
 
     // danbi: update totalCoin as we are one behind here
     // XXX: this might backfire in case of error...
-    totalCoin = pindex->nMoneySupply / COIN;
+    int64 totalCoin = pindex->nMoneySupply / COIN;
     if (nTime <= 1399020153)
     {
-        if (vtx[0].GetValueOut() > GetProofOfWorkReward(pindex->nHeight, nFees, prevHash))
+        if (vtx[0].GetValueOut() > GetProofOfWorkReward(pindex->nHeight, nFees, prevHash, totalCoin))
             return error("ConnectBlock() : claiming to have created too much (old)");
     }
     else
-        if (vtx[0].GetValueOut() > GetProofOfWorkReward(pindex->nHeight, nFees, prevHash) + GetContributionAmount(totalCoin))
+        if (vtx[0].GetValueOut() > GetProofOfWorkReward(pindex->nHeight, nFees, prevHash, totalCoin) + GetContributionAmount(totalCoin))
             return error("ConnectBlock() : claiming to have created too much (new)");
 
     if (nTime > 1399020153 && IsProofOfWork())
@@ -2173,12 +2174,12 @@ bool CBlock::AddToBlockIndex(unsigned int nFile, unsigned int nBlockPos)
     return true;
 }
 
-bool CBlock::CheckBlock(bool fCheckPOW, bool fCheckMerkleRoot, int64 totalCoin) const
+bool CBlock::CheckBlock(bool fCheckPOW, bool fCheckMerkleRoot) const
 {
     // Update the coin mechanics variables post algorithm change
     // Changing any of these requires a fork
-    if (totalCoin >= 1000000) {
-	// after first reward reduction
+    if (nTime > 1428829642) { // #877395
+        // after first reward reduction
         nStakeTargetSpacing = 100;   // PoS block spacing set to 100 seconds
         nWorkTargetSpacing = 100;    // PoW block spacing set to 100 seconds
         nCoinbaseMaturity = 180;     // coinbase maturity does not change
@@ -2400,7 +2401,7 @@ bool ProcessBlock(CNode* pfrom, CBlock* pblock)
         return error("ProcessBlock() : duplicate proof-of-stake (%s, %d) for block %s", pblock->GetProofOfStake().first.ToString().c_str(), pblock->GetProofOfStake().second, hash.ToString().c_str());
 
     // Preliminary checks
-    if (!pblock->CheckBlock(true,true,GetTotalCoin()))
+    if (!pblock->CheckBlock(true,true))
         return error("ProcessBlock() : CheckBlock FAILED");
 
     // ppcoin: verify hash target and signature of coinstake tx
@@ -3065,9 +3066,6 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
     // print what we got
     if (fDebug) printf("%s from %s\n", strCommand.c_str(), pfrom->addr.ToString().c_str());
 
-    // make sure we have current totalCoin
-    totalCoin = GetTotalCoin();
-
     if (strCommand == "version")
     {
         // Each connection can only send one version message
@@ -3091,7 +3089,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
             return false;
         }
 
-        if (totalCoin >= 1000000 && (pfrom->nVersion < MIN_PROTO_VERSION_AFTER_FIRST_REWARD_DECREASE)) {
+        if (pfrom->nVersion < MIN_PROTO_VERSION_AFTER_FIRST_REWARD_DECREASE) {
             printf("ERROR: partner %s using version %i from before reward decrease; disconnecting\n", pfrom->addr.ToString().c_str(), pfrom->nVersion);
             // immediate ban
             pfrom->Misbehaving(100);
@@ -4380,13 +4378,14 @@ CBlock* CreateNewBlock(CWallet* pwallet, bool fProofOfStake)
 
         nLastBlockTx = nBlockTx;
         nLastBlockSize = nBlockSize;
+        int64 totalCoin = pindexPrev->nMoneySupply / COIN;
 
         if (fDebug && GetBoolArg("-printpriority"))
             printf("CreateNewBlock(): total size %"PRI64u"\n", nBlockSize);
 
         if (pblock->IsProofOfWork())
         {
-            pblock->vtx[0].vout[0].nValue = GetProofOfWorkReward(pindexPrev->nHeight+1, nFees, pindexPrev->GetBlockHash());
+            pblock->vtx[0].vout[0].nValue = GetProofOfWorkReward(pindexPrev->nHeight+1, nFees, pindexPrev->GetBlockHash(), totalCoin);
         }
 
         // Fill in header
@@ -4400,9 +4399,10 @@ CBlock* CreateNewBlock(CWallet* pwallet, bool fProofOfStake)
         pblock->nNonce         = 0;
         if (pblock->nTime > 1399020153)
         {
+            pblock->vtx[0].vout.resize(2);
             if (pblock->IsProofOfWork()) {
+                int64 totalCoin = pindexPrev->nMoneySupply / COIN;
                 CBitcoinAddress address = GetFoundationAddress(totalCoin);
-                pblock->vtx[0].vout.resize(2);
                 pblock->vtx[0].vout[1].scriptPubKey.SetDestination(address.Get());
                 pblock->vtx[0].vout[1].nValue = GetContributionAmount(totalCoin);
             } else {
@@ -4542,7 +4542,6 @@ void BitcoinMiner(CWallet *pwallet, bool fProofOfStake)
 
     while (fGenerateBitcoins || fProofOfStake)
     {
-        totalCoin = GetTotalCoin();
         if (fShutdown)
             return;
 
@@ -4620,8 +4619,6 @@ void BitcoinMiner(CWallet *pwallet, bool fProofOfStake)
 
         while (true)
         {
-            // always calculate totalCoin
-            totalCoin = GetTotalCoin();
             // new block, use groestl
             uint256 hash = pblock->GetHashGroestl();
             if (hash <= hashTarget)
