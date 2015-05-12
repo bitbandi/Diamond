@@ -40,8 +40,8 @@ static const int64 CIRCULATION_MONEY = MAX_MONEY;
 static const double TAX_PERCENTAGE = 0.01;
 static const int64 MAX_MINT_PROOF_OF_STAKE = 1 * CENT;
 static const int64 MIN_TXOUT_AMOUNT = MIN_TX_FEE;
-static const int64 VALUE_CHANGE = 369494; // When to switch to Groestl
-static const int64 POS_RESTART = 450000; // When to apply fixes to enable PoS
+static const int64 POS_RESTART = 458143; // When to apply fixes to enable PoS
+static const int64 POW_RESTART = 577850; // When (block) to unstuck PoW
 
 inline bool MoneyRange(int64 nValue) { return (nValue >= 0 && nValue <= MAX_MONEY); }
 // Threshold for nLockTime: below this value it is interpreted as block number, otherwise as UNIX timestamp.
@@ -924,7 +924,7 @@ public:
         return (nBits == 0);
     }
 
-    uint256 GetHash(bool existingBlock=false, int64 coins=totalCoin) const;
+    uint256 GetHash() const;
 
     uint256 GetHashScrypt() const
     {

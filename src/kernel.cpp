@@ -299,7 +299,7 @@ bool CheckStakeKernelHash(unsigned int nBits, const CBlock& blockFrom, unsigned 
     bnTargetPerCoinDay.SetCompact(nBits);
     int64 nValueIn = txPrev.vout[prevout.n].nValue;
 
-    uint256 hashBlockFrom = blockFrom.GetHash(true);
+    uint256 hashBlockFrom = blockFrom.GetHash();
 
     // v0.3 protocol kernel hash weight starts from 0 at the min age
     // this change increases active coins participating the hash and helps

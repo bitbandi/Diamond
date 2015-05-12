@@ -826,9 +826,6 @@ bool CTxDB::LoadBlockIndex()
 
 bool CTxDB::LoadBlockIndexGuts()
 {
-    CBlockIndex* pindexSave = NULL;
-    CBlockIndex* pindexSaveNext = NULL;
-
     // Get database cursor
     Dbc* pcursor = GetCursor();
     if (!pcursor)
@@ -862,42 +859,7 @@ bool CTxDB::LoadBlockIndexGuts()
                 CDiskBlockIndex diskindex;
                 ssValue >> diskindex;
 
-                totalCoin = diskindex.nMoneySupply / COIN;
                 uint256 blockHash = diskindex.GetBlockHash();
-
-                // clean up junk from the block index
-                if (totalCoin == 0) {
-                    // printf("money supply = 0\n");
-                    // diskindex.print();
-                    if (blockHash != (!fTestNet ? hashGenesisBlock : hashGenesisBlockTestNet))
-                    {
-                        // not the genesis block, garbage anyway
-                        // printf("deleted\n");
-                        continue;
-                    }
-                }
-                if (totalCoin == VALUE_CHANGE) {
-//                    printf("height = %d, hash = %s\n", diskindex.nHeight, diskindex.GetBlockHash().ToString().c_str());
-//                    diskindex.print();
-                    if (diskindex.hashNext == uint256("0x92134c4608025b6bd945731158391079590d0e7e0c60bd7d09a50c0b0251c6ac"))
-                    {
-                        // assign proper hash value
-//                        printf("changed\n");
-                        diskindex.hashNext = uint256("0x00000d652b612a94e1c830bf4e05106438ea6b53372b29206f0b820d91a9b67b");
-                    }
-                    if (diskindex.GetBlockHash() == uint256("0xe12ddb2c35d84403b0a045574ecce223f7e2f0db4506e76ed3d43bc464ace40c"))
-                    {
-                        // this hash version should not be here, delete
-//                        printf("deleted\n");
-                        continue;
-                    }
-                }
-                if (totalCoin == VALUE_CHANGE+1) {
-                    // for information
-//                    printf("height = %d, hash = %s\n", diskindex.nHeight, diskindex.GetBlockHash().ToString().c_str());
-//                    diskindex.print();
-                }
-                // end cleanup
 
                 // Construct block index object
                 CBlockIndex* pindexNew = InsertBlockIndex(blockHash);
@@ -919,11 +881,6 @@ bool CTxDB::LoadBlockIndexGuts()
                 pindexNew->nBits          = diskindex.nBits;
                 pindexNew->nNonce         = diskindex.nNonce;
 
-                if(totalCoin == VALUE_CHANGE)
-                    pindexSave = pindexNew;
-                if(totalCoin == VALUE_CHANGE + 1)
-                    pindexSaveNext = pindexNew;
-
                 // Watch for genesis block
                 if (pindexGenesisBlock == NULL && blockHash == (!fTestNet ? hashGenesisBlock : hashGenesisBlockTestNet))
                     pindexGenesisBlock = pindexNew;
@@ -943,14 +900,6 @@ bool CTxDB::LoadBlockIndexGuts()
         catch (std::exception &e) {
             return error("%s() : deserialize error", __PRETTY_FUNCTION__);
         }
-    }
-
-//    printf("loaded %d in block index\n", count);
-
-    if(pindexSaveNext != NULL && pindexSave != NULL && pindexSave->pnext == NULL)
-    {
-//        printf("linked pnext at switch block\n");
-        pindexSave->pnext = pindexSaveNext;
     }
 
     pcursor->close();
